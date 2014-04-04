@@ -1,5 +1,25 @@
 require "expectation"
 
+# -- core extensions ---------------------------------------------------.......
+
+class Array
+  def by(key = nil, &block)
+    ary = []
+
+    if key
+      each do |rec|
+        ary << rec[key] << rec
+      end
+    else
+      each do |value|
+        ary << yield(value) << value
+      end
+    end
+
+    Hash[*ary]
+  end
+end
+
 # -- sqlite3 + improvements ---------------------------------------------------
 
 require "sqlite3"
@@ -157,6 +177,16 @@ class Events::DB
   extend Forwardable
   delegate [:exec, :select, :transaction, :rollback] => :@db
 
+  PERIODS = [
+    [ :year,   31536000, "strftime('%Y-01-01',          starts_at, 'unixepoch')" ],
+    [ :month,   2592000, "strftime('%Y-%m-01',          starts_at, 'unixepoch')" ],
+    [ :week,     604800, "strftime('%Y-%m-%d',          starts_at, 'unixepoch',  'weekday 1', '-7 days')" ],
+    [ :day,       86400, "strftime('%Y-%m-%d',          starts_at, 'unixepoch')" ],
+    [ :hour,       3600, "strftime('%Y-%m-%d %H:00:00', starts_at, 'unixepoch')" ],
+    [ :minute,       60, "strftime('%Y-%m-%d %H:%M:00', starts_at, 'unixepoch')" ],
+    [ :second,        1, "strftime('%Y-%m-%d %H:%M:%S', starts_at, 'unixepoch')" ],
+  ]
+
   def initialize(path)
     @db = SQLite3::Database.new(path)
 
@@ -184,8 +214,7 @@ class Events::DB
 
       CREATE INDEX IF NOT EXISTS aggregated_#{name}_idx1 ON aggregated_#{name}(name);
       CREATE INDEX IF NOT EXISTS aggregated_#{name}_idx2 ON aggregated_#{name}(starts_at);
-      CREATE INDEX IF NOT EXISTS aggregated_#{name}_idx2 ON aggregated_#{name}(period);
-      CREATE INDEX IF NOT EXISTS aggregated_#{name}_idx2 ON aggregated_#{name}(duration);
+      CREATE INDEX IF NOT EXISTS aggregated_#{name}_idx3 ON aggregated_#{name}(duration);
       SQL
     end
 
@@ -234,50 +263,40 @@ class Events::DB
 
   public
 
-  PERIOD_START_SQL_FRAGMENT = {
-    year:     [ 31536000, "strftime('%Y-01-01',          starts_at, 'unixepoch')" ],
-    month:    [  2592000, "strftime('%Y-%m-01',          starts_at, 'unixepoch')" ],
-    week:     [   604800, "strftime('%Y-%m-%d',          starts_at, 'unixepoch',  'weekday 1', '-7 days')" ],
-    day:      [    86400, "strftime('%Y-%m-%d',          starts_at, 'unixepoch')" ],
-    hour:     [     3600, "strftime('%Y-%m-%d %H:00:00', starts_at, 'unixepoch')" ],
-    minute:   [       60, "strftime('%Y-%m-%d %H:%M:00', starts_at, 'unixepoch')" ],
-    second:   [        1, "strftime('%Y-%m-%d %H:%M:%S', starts_at, 'unixepoch')" ],
-  }
+  PERIODS_BY_KEY = PERIODS.by(&:first)
 
   def aggregate(*keys)
     if keys.empty?
-      keys = PERIOD_START_SQL_FRAGMENT.keys
+      keys = PERIODS.map(&:first)
     end
 
     transaction do
-      keys.each do |key|
-        aggregate_for_period key, :counters
+      keys.each do |period|
+        aggregate_for_period :period => period, :source => :counters, :dest => :aggregated_counters, :aggregate => "sum"
       end
 
       @db.exec "DELETE FROM counters"
     end
 
     transaction do
-      keys.each do |key|
-        aggregate_for_period key, :gauges
+      keys.each do |period|
+        aggregate_for_period :period => period, :source => :gauges, :dest => :aggregated_gauges, :aggregate => "CAST(sum AS FLOAT) / count"
       end
 
       @db.exec "DELETE FROM gauges"
     end
   end
 
-  def aggregate_for_period(key, events_table)
-    key = key.to_sym
+  def aggregate_for_period(options)
+    expect! options => {
+      :period => PERIODS.map(&:first)
+    }
+    period, source, dest, aggregate = options.values_at :period, :source, :dest, :aggregate
 
-    expect! key => PERIOD_START_SQL_FRAGMENT.keys
-    expect! events_table => [ :counters, :gauges ]
-
-    aggregated_table = "aggregated_#{events_table}"
-
-    duration, starts_at = PERIOD_START_SQL_FRAGMENT[key]
+    _, duration, starts_at = PERIODS_BY_KEY[period]
 
     # sql expression to calculate value from sum and count of event values
-    aggregate = events_table == :gauges ? "CAST(sum AS FLOAT) / count" : "sum"
+    aggregate = source == :gauges ? "CAST(sum AS FLOAT) / count" : "sum"
 
     @db.exec <<-SQL
       CREATE TEMPORARY TABLE batch AS
@@ -287,7 +306,7 @@ class Events::DB
             #{starts_at}  AS starts_at,
             SUM(value)    AS sum,
             COUNT(value)  AS count
-            FROM #{events_table}
+            FROM #{source}
           GROUP BY name, starts_at
 
           UNION
@@ -296,16 +315,16 @@ class Events::DB
             starts_at     AS starts_at,
             sum           AS sum,
             count         AS count
-          FROM #{aggregated_table}
+          FROM #{dest}
           WHERE duration=#{duration}
         )
         GROUP BY name, starts_at;
 
-      DELETE FROM #{aggregated_table}
+      DELETE FROM #{dest}
       WHERE duration=#{duration};
 
-      INSERT INTO #{aggregated_table}(name, starts_at, period, duration, sum, count, value)
-                      SELECT name, starts_at, '#{key}', #{duration}, sum, count, #{aggregate}
+      INSERT INTO #{dest}(name, starts_at, period, duration, sum, count, value)
+                      SELECT name, starts_at, '#{period}', #{duration}, sum, count, #{aggregate}
                       FROM batch;
     SQL
 
@@ -340,31 +359,6 @@ class PP
 end
 
 require "test/unit"
-
-class Hash
-  def to_ostruct
-    require "ostruct"
-    OpenStruct.new self
-  end
-end
-
-class Array
-  def by(key = nil, &block)
-    ary = []
-
-    if key
-      each do |rec|
-        ary << rec[key] << rec
-      end
-    else
-      each do |value|
-        ary << yield(value) << value
-      end
-    end
-
-    Hash[*ary]
-  end
-end
 
 module Events::TestCases
 end
