@@ -180,7 +180,9 @@ class Events::DB
       starts_at TIMESTAMP NOT NULL,                       -- the start-at timestamp
       duration,                                           -- the duration (estimate, in secs.)
       period,                                             -- the name of the period (year, day, etc.)
-      value                                               -- number of name events in periods
+      sum,                                                -- the sum of event values
+      count,                                              -- the count of events
+      value                                               -- the aggregated value
   );
 
   CREATE INDEX IF NOT EXISTS aggregates_idx1 ON aggregates(name);
@@ -270,19 +272,21 @@ class Events::DB
     @db.exec <<-SQL
       -- preaggregate counters from aggregates into batch_for_#{key}
       CREATE TEMPORARY TABLE batch_for_#{key} AS
-        SELECT name, starts_at, SUM(value) AS value FROM
+        SELECT name, starts_at, SUM(sum) AS sum, SUM(count) AS count FROM
         (
           SELECT name     AS name,
             #{starts_at}  AS starts_at,
-            SUM(value)    AS value
-          FROM counters
+            SUM(value)    AS sum,
+            COUNT(value)  AS count
+            FROM counters
           GROUP BY name, starts_at
 
           UNION
 
           SELECT name     AS name,
             starts_at     AS starts_at,
-            value         AS value
+            sum           AS sum,
+            count         AS count
           FROM aggregates
           WHERE duration=#{duration}
         )
@@ -294,8 +298,8 @@ class Events::DB
       DELETE FROM aggregates
       WHERE duration=#{duration};
 
-      INSERT INTO aggregates(name, starts_at, period, duration, value)
-                      SELECT name, starts_at, '#{key}', #{duration}, value
+      INSERT INTO aggregates(name, starts_at, period, duration, sum, count, value)
+                      SELECT name, starts_at, '#{key}', #{duration}, sum, count, sum
                       FROM batch_for_#{key};
     SQL
   end
@@ -352,11 +356,10 @@ class Array
   end
 end
 
-class Events::Test < Test::Unit::TestCase
-  def test_success
-    assert true
-  end
+module Events::TestCases
+end
 
+class Events::TestCases::Counters < Test::Unit::TestCase
   def db
     @db ||= Events::DB.new ":memory:"
   end
