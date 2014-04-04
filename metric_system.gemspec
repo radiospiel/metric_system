@@ -12,7 +12,7 @@ Gem::Specification.new do |gem|
 
   gem.author   = "radiospiel"
   gem.email    = "eno@radiospiel.org"
-  gem.homepage = "http://github.com/radiospiel/sinatra-sse"
+  gem.homepage = "http://github.com/radiospiel/metric_system"
   gem.summary  = "A simple metrics aggregator"
   
   gem.add_dependency "expectation"
