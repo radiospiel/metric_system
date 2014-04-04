@@ -1,3 +1,5 @@
+require "expectation"
+
 # -- sqlite3 + improvements ---------------------------------------------------
 
 require "sqlite3"
@@ -62,9 +64,9 @@ end
 
 class SQLite3::Query
   def initialize(sql, statement)
-    @sql = sql
-    # expect! statement => SQLite3::Statement
-    @statement = statement
+    expect! statement => SQLite3::Statement
+
+    @sql, @statement = sql, statement
   end
 
   def run(*args)
