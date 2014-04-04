@@ -101,6 +101,17 @@ class SQLite3::Query
       @klass.build *rec
     end
   end
+
+  def ask(*args)
+    results = run(*args)
+    row = results.first
+    results.reset
+
+    if !row               then  nil
+    elsif row.length == 1 then  row.first
+    else                        row
+    end
+  end
 end
 
 class SQLite3::Database
@@ -145,6 +156,10 @@ class SQLite3::Database
 
   def run(sql, *args)
     query(sql).run *prepare_arguments(args)
+  end
+
+  def ask(sql, *args)
+    query(sql).ask *prepare_arguments(args)
   end
 
   # run a select like query. Returns an array of records.
