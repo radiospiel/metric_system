@@ -8,27 +8,52 @@ require "sqlite3"
 # for a specific set of columns. It is build on top of Struct, which is way
 # faster than Hashes, for example.
 module SQLite3::Record
-  attr :columns, true
-  
-  def build(*attrs)
-    attrs = columns.zip(attrs).map do |key, value|
-      case key
-      when /_at$/ then value = Time.parse(value)
-      when /_on$/ then value = Date.parse(value)
-      else value
+  module ClassMethods
+    attr :columns, true
+
+    private
+
+    def to_time(s)
+      case s
+      when String then Time.parse(s)
+      when Fixnum then Time.at(s)
+      else s
       end
     end
-    
-    new *attrs
+
+    def to_date(s)
+      return unless time = to_time(s)
+      time.to_date
+    end
+
+    public
+
+    def build(*attrs)
+      attrs = columns.zip(attrs).map do |key, value|
+        case key
+        when /_at$/ then to_time(value)
+        when /_on$/ then to_date(value)
+        else value
+        end
+      end
+
+      new *attrs
+    end
   end
-  
+
+  def to_a
+    self.class.columns.map do |column| send(column) end
+  end
+
   def self.for_columns(columns)
     columns = columns.map(&:to_sym)
 
     @@classes ||= {}
     @@classes[columns] ||= begin
       struct = Struct.new(*columns)
-      struct.extend SQLite3::Record
+      struct.extend SQLite3::Record::ClassMethods
+      struct.include SQLite3::Record
+
       struct.columns = columns
       struct
     end
@@ -36,15 +61,17 @@ module SQLite3::Record
 end
 
 class SQLite3::Query
-  def initialize(statement)
+  def initialize(sql, statement)
+    @sql = sql
     # expect! statement => SQLite3::Statement
     @statement = statement
   end
-  
+
   def run(*args)
+    # STDERR.puts "Q: #{@sql} #{args.map(&:inspect).join(", ")}"
     @statement.execute *args
   end
-  
+
   def select(*args)
     @klass ||= SQLite3::Record.for_columns(@statement.columns)
 
@@ -57,6 +84,8 @@ end
 class SQLite3::Database
   # execute multiple SQL statements at once.
   def exec(sql, *args)
+    args = prepare_arguments(args)
+
     while sql =~ /\S/ do
       statement = prepare(sql)
 
@@ -65,26 +94,53 @@ class SQLite3::Database
         statement.execute!(*args)
       end
     end
+
+  rescue
+    STDERR.puts "#{sql}: #{$!}"
+    raise
   end
 
   # -- cached queries ---------------------------------------------------------
-  
+
   private
-  
+
   def query(sql)
     @queries ||= {}
-    @queries[sql] ||= SQLite3::Query.new prepare(sql)
+    @queries[sql] ||= SQLite3::Query.new sql, prepare(sql)
+  end
+
+  def prepare_arguments(args)
+    args.map do |arg|
+      case arg
+      when Time then arg.to_i
+      when Date then arg.to_time.to_i
+      else arg
+      end
+    end
   end
 
   public
-  
+
   def run(sql, *args)
-    query(sql).run *args
+    query(sql).run *prepare_arguments(args)
   end
 
   # run a select like query. Returns an array of records.
   def select(sql, *args)
-    query(sql).select *args
+    query(sql).select *prepare_arguments(args)
+  end
+
+  def print(sql, *args)
+    results = select sql, *args
+    log_sql = sql.gsub(/\n/, " ").gsub(/\s+/, " ")
+    puts "=" * log_sql.length
+    puts log_sql
+    puts "-" * log_sql.length
+
+    results.each do |result|
+      pp result.to_a
+    end
+    puts "=" * log_sql.length
   end
 end
 
@@ -101,7 +157,7 @@ class Events::DB
 
   CREATE TABLE IF NOT EXISTS gauges(
     id INTEGER PRIMARY KEY,
-  
+
     name NOT NULL,                                                -- the event name
     value NOT NULL,                                               -- the value
     starts_at TIMESTAMP NOT NULL DEFAULT (strftime('%s','now'))   -- the timestamp
@@ -109,7 +165,7 @@ class Events::DB
 
   CREATE TABLE IF NOT EXISTS counters(
     id INTEGER PRIMARY KEY,
-  
+
     name NOT NULL,                                                -- the event name
     value NOT NULL,                                               -- the value
     starts_at TIMESTAMP NOT NULL DEFAULT (strftime('%s','now'))   -- the timestamp
@@ -120,18 +176,21 @@ class Events::DB
 
       name NOT NULL,                                      -- the event name
       starts_at TIMESTAMP NOT NULL,                       -- the start-at timestamp
-      period,                                             -- the length of the period
+      duration,                                           -- the duration (estimate, in secs.)
+      period,                                             -- the name of the period (year, day, etc.)
       value                                               -- number of name events in periods
   );
 
   CREATE INDEX IF NOT EXISTS aggregates_idx1 ON aggregates(name);
   CREATE INDEX IF NOT EXISTS aggregates_idx2 ON aggregates(starts_at);
+  CREATE INDEX IF NOT EXISTS aggregates_idx2 ON aggregates(period);
+  CREATE INDEX IF NOT EXISTS aggregates_idx2 ON aggregates(duration);
 
   SQL
 
 
   extend Forwardable
-  delegate [:select, :transaction, :rollback] => :@db
+  delegate [:exec, :select, :transaction, :rollback] => :@db
 
   def initialize(path)
     @db = SQLite3::Database.new(path)
@@ -145,9 +204,9 @@ class Events::DB
   def count(name, value, starts_at = nil)
     add_event :counters, name, value, starts_at
   end
-  
+
   private
-  
+
   def add_event(table, name, value, starts_at)
     # get names of all related events. An event "a.b.c" is actually
     # 3 events: "a", "a.b", "a.b.c"
@@ -160,7 +219,7 @@ class Events::DB
 
     if starts_at
       starts_at = Time.parse(starts_at) if starts_at.is_a?(String)
-      
+
       names.each do |name|
         @db.run "INSERT INTO #{table}(name, value, starts_at) VALUES(?, ?, ?)", name, value, starts_at.to_i
       end
@@ -170,64 +229,72 @@ class Events::DB
       end
     end
   end
-  
-  public
-  
-  PERIOD_START_SQL_FRAGMENT = {
-    year:     "strftime('%Y-01-01',          starts_at, 'unixepoch')",
-    month:    "strftime('%Y-%m-01',          starts_at, 'unixepoch')",
-    week:     "strftime('%Y-%m-%d',          starts_at, 'unixepoch', 'weekday 1', '-7 days')",
-    day:      "strftime('%Y-%m-%d',          starts_at, 'unixepoch')",
-    hour:     "strftime('%Y-%m-%d %H:00:00', starts_at, 'unixepoch')",
-    minute:   "strftime('%Y-%m-%d %H:%M:00', starts_at, 'unixepoch')",
-    second:   "strftime('%Y-%m-%d %H:%M:%S', starts_at, 'unixepoch')",
-  }
-  
-  def aggregate
-    aggregate_counters
-  end
-  
-  def aggregate_counters
-    transaction do
 
-      PERIOD_START_SQL_FRAGMENT.each do |key, starts_at|
-        benchmark "aggregate #{key.inspect} values" do
-          aggregate_for_period key
-        end
+  public
+
+  PERIOD_START_SQL_FRAGMENT = {
+    year:     [ 31536000, "strftime('%Y-01-01',          starts_at, 'unixepoch')" ],
+    month:    [  2592000, "strftime('%Y-%m-01',          starts_at, 'unixepoch')" ],
+    week:     [   604800, "strftime('%Y-%m-%d',          starts_at, 'unixepoch',  'weekday 1', '-7 days')" ],
+    day:      [    86400, "strftime('%Y-%m-%d',          starts_at, 'unixepoch')" ],
+    hour:     [     3600, "strftime('%Y-%m-%d %H:00:00', starts_at, 'unixepoch')" ],
+    minute:   [       60, "strftime('%Y-%m-%d %H:%M:00', starts_at, 'unixepoch')" ],
+    second:   [        1, "strftime('%Y-%m-%d %H:%M:%S', starts_at, 'unixepoch')" ],
+  }
+
+  def aggregate(*keys)
+    transaction do
+      if keys.empty?
+        keys = PERIOD_START_SQL_FRAGMENT.keys
       end
 
-      @db.exec "DELETE FROM counters"
+      aggregate_counters(keys)
     end
   end
-  
+
+  def aggregate_counters(keys)
+    keys.each do |key|
+      benchmark "aggregate #{key.inspect} values" do
+        aggregate_for_period key
+      end
+    end
+
+    @db.exec "DELETE FROM counters"
+  end
+
   def aggregate_for_period(key)
-    starts_at = PERIOD_START_SQL_FRAGMENT[key]
+    duration, starts_at = PERIOD_START_SQL_FRAGMENT.fetch(key.to_sym)
 
     @db.exec <<-SQL
-      -- preaggregate counters from aggregates into batch_for_#{key} 
+      -- preaggregate counters from aggregates into batch_for_#{key}
       CREATE TEMPORARY TABLE batch_for_#{key} AS
         SELECT name, starts_at, SUM(value) AS value FROM
         (
-          SELECT name     AS name, 
+          SELECT name     AS name,
             #{starts_at}  AS starts_at,
-            value         AS value
+            SUM(value)    AS value
           FROM counters
-        
+          GROUP BY name, starts_at
+
           UNION
-        
-          SELECT name     AS name, 
+
+          SELECT name     AS name,
             starts_at     AS starts_at,
             value         AS value
           FROM aggregates
-          WHERE period='#{key}'
-        );
-      
+          WHERE duration=#{duration}
+        )
+        GROUP BY name, starts_at;
+        SQL
+
+    @db.exec <<-SQL
       --
       DELETE FROM aggregates
-      WHERE period='#{key}';
-      
-      INSERT INTO aggregates(name, starts_at, period, value) 
-      SELECT name, starts_at, '#{key}', value FROM batch_for_#{key};
+      WHERE duration=#{duration};
+
+      INSERT INTO aggregates(name, starts_at, period, duration, value)
+                      SELECT name, starts_at, '#{key}', #{duration}, value
+                      FROM batch_for_#{key};
     SQL
   end
 end
@@ -247,7 +314,23 @@ end
 
 require "pp"
 
+class PP
+  class << self
+    alias_method :old_pp, :pp
+    def pp(obj, out = $>, width = 140)
+      old_pp(obj, out, width)
+    end
+  end
+end
+
 require "test/unit"
+
+class Hash
+  def to_ostruct
+    require "ostruct"
+    OpenStruct.new self
+  end
+end
 
 class Array
   def by(key = nil, &block)
@@ -271,53 +354,86 @@ class Events::Test < Test::Unit::TestCase
   def test_success
     assert true
   end
-  
+
+  def db
+    @db ||= Events::DB.new ":memory:"
+  end
+
+  def test_two_events
+    db.count "foo",     1, "2014-03-02 12:10:11"
+    db.count "foo",     1, "2014-03-02 14:10:11"
+    db.aggregate :minute, :hour, :day
+
+    r = db.select("SELECT name, value, period, starts_at FROM aggregates ORDER BY duration, name, starts_at")
+    r = r.map(&:to_a)
+
+    assert_equal(r, [
+      ["foo", 1, "minute",  Time.parse("2014-03-02 11:10:00 +0100")],
+      ["foo", 1, "minute",  Time.parse("2014-03-02 13:10:00 +0100")],
+      ["foo", 1, "hour",    Time.parse("2014-03-02 11:00:00 +0100")],
+      ["foo", 1, "hour",    Time.parse("2014-03-02 13:00:00 +0100")],
+      ["foo", 2, "day",     Time.parse("2014-03-02 00:00:00 +0100")],
+    ])
+  end
+
+  def test_conversion
+    db.exec "CREATE TABLE tmp(value, starts_at, starts_on)"
+    now = Time.parse("2014-03-02 11:10:11 +0100")
+    day = Date.parse("2014-03-02")
+
+    db.exec "INSERT INTO tmp (value, starts_at, starts_on) VALUES(?, ?, ?)", "one", now, now
+    rows = db.select("SELECT value, starts_at, starts_on FROM tmp")
+    assert_equal rows.map(&:to_a), [
+      [ "one", now, day ]
+    ]
+  end
+
   def test_single_aggregate
-    db = Events::DB.new ":memory:"
-    db.count "foo", 1, "2014-04-02 12:10:11"
+    db.count "foo", 1, "2014-03-02 12:10:11"
     db.aggregate
-    
-    r = db.select "SELECT name, value, period, starts_at FROM aggregates"
-    pp r.by(&:period)
+
+    r = db.select("SELECT name, value, period, starts_at FROM aggregates ORDER BY duration, name")
+    assert_equal(r.map(&:to_a), [
+      ["foo", 1, "second",  Time.parse("2014-03-02 11:10:11 +0100")],
+      ["foo", 1, "minute",  Time.parse("2014-03-02 11:10:00 +0100")],
+      ["foo", 1, "hour",    Time.parse("2014-03-02 11:00:00 +0100")],
+      ["foo", 1, "day",     Time.parse("2014-03-02 00:00:00 +0100")],
+      ["foo", 1, "week",    Time.parse("2014-02-24 00:00:00 +0100")],
+      ["foo", 1, "month",   Time.parse("2014-03-01 00:00:00 +0100")],
+      ["foo", 1, "year",    Time.parse("2014-01-01 00:00:00 +0100")]
+    ])
+  end
+
+  def test_store_combined_name
+    db.count "foo",     1, "2014-03-02 12:10:11"
+    db.count "foo.bar", 2, "2014-03-02 12:10:11"
+    r = db.select("SELECT name, value, starts_at FROM counters ORDER BY name")
+    assert_equal(r.map(&:to_a), [
+      ["foo"    , 1, Time.parse("2014-03-02 12:10:11 +0100")],
+      ["foo"    , 2, Time.parse("2014-03-02 12:10:11 +0100")],
+      ["foo.bar", 2, Time.parse("2014-03-02 12:10:11 +0100")]
+      ])
+  end
+
+  def test_combined_name
+    db.count "foo",     3, "2014-03-02 12:10:11"
+    db.count "foo.bar", 2, "2014-03-02 12:10:11"
+    db.aggregate :second, :minute, :hour
+
+    r = db.select <<-SQL
+      SELECT name, value, period, starts_at
+      FROM aggregates
+      WHERE duration <= 3600
+      ORDER BY duration, name
+    SQL
+
+    assert_equal(r.map(&:to_a), [
+      ["foo"    , 5, "second",  Time.parse("2014-03-02 11:10:11 +0100")],
+      ["foo.bar", 2, "second",  Time.parse("2014-03-02 11:10:11 +0100")],
+      ["foo"    , 5, "minute",  Time.parse("2014-03-02 11:10:00 +0100")],
+      ["foo.bar", 2, "minute",  Time.parse("2014-03-02 11:10:00 +0100")],
+      ["foo"    , 5, "hour",    Time.parse("2014-03-02 11:00:00 +0100")],
+      ["foo.bar", 2, "hour",    Time.parse("2014-03-02 11:00:00 +0100")]
+    ])
   end
 end
-
-__END__
-
-# Open a database
-require "fileutils"
-db = Events::DB.new "events.db"
-db = Events::DB.new ":memory:"
-
-NAMES = %w(foo bar baz)
-SUBNAMES = %w(left right top bottom)
-
-COUNT=250 # 000
-
-benchmark  "Added #{2*COUNT} entries" do
-  db.transaction do
-
-    COUNT.times do 
-      name, subname = NAMES.sample, SUBNAMES.sample
-      value = rand(1000)
-      value *= value
-
-      db.count "#{name}.#{subname}", value
-      db.count "#{name}.#{subname}", value, Time.now - 100 * 3600 * 24 + rand(80000)
-    end 
-  end
-end
-
-benchmark  "aggregated" do
-  db.aggregate
-end
-__END__
-
-#
-events.aggregate(:year)
-events.aggregate(:month)
-events.aggregate(:week)
-events.aggregate(:day)
-events.aggregate(:hour)
-events.aggregate(:minute)
-events.aggregate(:second)
