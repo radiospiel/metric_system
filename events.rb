@@ -200,19 +200,21 @@ class Events::DB
         starts_at TIMESTAMP NOT NULL DEFAULT (strftime('%s','now'))   -- the timestamp
       );
 
+      CREATE INDEX IF NOT EXISTS #{name}_idx1 ON #{name}(name, starts_at);
+
       CREATE TABLE IF NOT EXISTS aggregated_#{name}(
           id INTEGER PRIMARY KEY,
 
           name NOT NULL,                                      -- the event name
           starts_at TIMESTAMP NOT NULL,                       -- the start-at timestamp
-          duration,                                           -- the duration (estimate, in secs.)
+          duration NOT NULL,                                  -- the duration (estimate, in secs.)
           period,                                             -- the name of the period (year, day, etc.)
           sum,                                                -- the sum of event values
           count,                                              -- the count of events
           value                                               -- the aggregated value
       );
 
-      CREATE INDEX IF NOT EXISTS aggregated_#{name}_idx1 ON aggregated_#{name}(name);
+      CREATE UNIQUE INDEX IF NOT EXISTS aggregated_#{name}_uidx1 ON aggregated_#{name}(name, starts_at, duration);
       CREATE INDEX IF NOT EXISTS aggregated_#{name}_idx2 ON aggregated_#{name}(starts_at);
       CREATE INDEX IF NOT EXISTS aggregated_#{name}_idx3 ON aggregated_#{name}(duration);
       SQL
@@ -311,19 +313,18 @@ class Events::DB
 
           UNION
 
-          SELECT name     AS name,
-            starts_at     AS starts_at,
-            sum           AS sum,
-            count         AS count
+          SELECT #{dest}.name     AS name,
+            #{dest}.starts_at     AS starts_at,
+            sum                   AS sum,
+            count                 AS count
           FROM #{dest}
-          WHERE duration=#{duration}
+          INNER JOIN #{source} ON #{dest}.name=#{source}.name
+          WHERE duration=#{duration} 
+            AND #{dest}.starts_at >= (SELECT MIN(starts_at) FROM #{source})
         )
         GROUP BY name, starts_at;
 
-      DELETE FROM #{dest}
-      WHERE duration=#{duration};
-
-      INSERT INTO #{dest}(name, starts_at, period, duration, sum, count, value)
+      INSERT OR REPLACE INTO #{dest}(name, starts_at, period, duration, sum, count, value)
                       SELECT name, starts_at, '#{period}', #{duration}, sum, count, #{aggregate}
                       FROM batch;
     SQL
