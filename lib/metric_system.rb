@@ -16,7 +16,7 @@ class MetricSystem
     [ :day,       86400, "strftime('%Y-%m-%d',          starts_at, 'unixepoch')" ],
     [ :hour,       3600, "strftime('%Y-%m-%d %H:00:00', starts_at, 'unixepoch')" ],
     [ :minute,       60, "strftime('%Y-%m-%d %H:%M:00', starts_at, 'unixepoch')" ],
-    [ :second,        1, "strftime('%Y-%m-%d %H:%M:%S', starts_at, 'unixepoch')" ],
+    # [ :second,        1, "strftime('%Y-%m-%d %H:%M:%S', starts_at, 'unixepoch')" ],
   ]
 
   def initialize(path)

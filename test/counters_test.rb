@@ -42,7 +42,6 @@ class MetricSystem::TestCounters < Test::Unit::TestCase
 
     r = db.select("SELECT name, value, period, starts_at FROM aggregates ORDER BY duration, name")
     assert_equal(r.map(&:to_a), [
-      ["foo", 1, "second",  Time.parse("2014-03-02 11:10:11 +0100")],
       ["foo", 1, "minute",  Time.parse("2014-03-02 11:10:00 +0100")],
       ["foo", 1, "hour",    Time.parse("2014-03-02 11:00:00 +0100")],
       ["foo", 1, "day",     Time.parse("2014-03-02 00:00:00 +0100")],
@@ -66,7 +65,7 @@ class MetricSystem::TestCounters < Test::Unit::TestCase
   def test_combined_name
     db.count "foo",     3, "2014-03-02 12:10:11"
     db.count "foo.bar", 2, "2014-03-02 12:10:11"
-    db.aggregate :second, :minute, :hour
+    db.aggregate :minute, :hour
 
     r = db.select <<-SQL
       SELECT name, value, period, starts_at
@@ -75,8 +74,6 @@ class MetricSystem::TestCounters < Test::Unit::TestCase
     SQL
 
     assert_equal(r.map(&:to_a), [
-      ["foo"    , 5, "second",  Time.parse("2014-03-02 11:10:11 +0100")],
-      ["foo.bar", 2, "second",  Time.parse("2014-03-02 11:10:11 +0100")],
       ["foo"    , 5, "minute",  Time.parse("2014-03-02 11:10:00 +0100")],
       ["foo.bar", 2, "minute",  Time.parse("2014-03-02 11:10:00 +0100")],
       ["foo"    , 5, "hour",    Time.parse("2014-03-02 11:00:00 +0100")],
@@ -87,8 +84,8 @@ class MetricSystem::TestCounters < Test::Unit::TestCase
   def test_double_aggregate
     db.count "foo",     3, "2014-03-02 12:10:11"
     db.count "foo.bar", 2, "2014-03-02 12:10:11"
-    db.aggregate :second, :minute, :hour
-    db.aggregate :second, :minute, :hour
+    db.aggregate :minute, :hour
+    db.aggregate :minute, :hour
 
     r = db.select <<-SQL
       SELECT name, value, period, starts_at
@@ -97,8 +94,6 @@ class MetricSystem::TestCounters < Test::Unit::TestCase
     SQL
 
     assert_equal(r.map(&:to_a), [
-      ["foo"    , 5, "second",  Time.parse("2014-03-02 11:10:11 +0100")],
-      ["foo.bar", 2, "second",  Time.parse("2014-03-02 11:10:11 +0100")],
       ["foo"    , 5, "minute",  Time.parse("2014-03-02 11:10:00 +0100")],
       ["foo.bar", 2, "minute",  Time.parse("2014-03-02 11:10:00 +0100")],
       ["foo"    , 5, "hour",    Time.parse("2014-03-02 11:00:00 +0100")],
