@@ -154,56 +154,54 @@ end
 
 require "forwardable"
 class Events::DB
-  SCHEMA=<<-SQL
-  PRAGMA synchronous = NORMAL;
-
-  CREATE TABLE IF NOT EXISTS gauges(
-    id INTEGER PRIMARY KEY,
-
-    name NOT NULL,                                                -- the event name
-    value NOT NULL,                                               -- the value
-    starts_at TIMESTAMP NOT NULL DEFAULT (strftime('%s','now'))   -- the timestamp
-  );
-
-  CREATE TABLE IF NOT EXISTS counters(
-    id INTEGER PRIMARY KEY,
-
-    name NOT NULL,                                                -- the event name
-    value NOT NULL,                                               -- the value
-    starts_at TIMESTAMP NOT NULL DEFAULT (strftime('%s','now'))   -- the timestamp
-  );
-
-  CREATE TABLE IF NOT EXISTS aggregates(
-      id INTEGER PRIMARY KEY,
-
-      name NOT NULL,                                      -- the event name
-      starts_at TIMESTAMP NOT NULL,                       -- the start-at timestamp
-      duration,                                           -- the duration (estimate, in secs.)
-      period,                                             -- the name of the period (year, day, etc.)
-      sum,                                                -- the sum of event values
-      count,                                              -- the count of events
-      value                                               -- the aggregated value
-  );
-
-  CREATE INDEX IF NOT EXISTS aggregates_idx1 ON aggregates(name);
-  CREATE INDEX IF NOT EXISTS aggregates_idx2 ON aggregates(starts_at);
-  CREATE INDEX IF NOT EXISTS aggregates_idx2 ON aggregates(period);
-  CREATE INDEX IF NOT EXISTS aggregates_idx2 ON aggregates(duration);
-
-  SQL
-
-
   extend Forwardable
   delegate [:exec, :select, :transaction, :rollback] => :@db
 
   def initialize(path)
     @db = SQLite3::Database.new(path)
-    @db.exec SCHEMA
+
+    [ :counters, :gauges ].each do |name|
+      exec <<-SQL
+      CREATE TABLE IF NOT EXISTS #{name}(
+        id INTEGER PRIMARY KEY,
+
+        name NOT NULL,                                                -- the event name
+        value NOT NULL,                                               -- the value
+        starts_at TIMESTAMP NOT NULL DEFAULT (strftime('%s','now'))   -- the timestamp
+      );
+
+      CREATE TABLE IF NOT EXISTS aggregated_#{name}(
+          id INTEGER PRIMARY KEY,
+
+          name NOT NULL,                                      -- the event name
+          starts_at TIMESTAMP NOT NULL,                       -- the start-at timestamp
+          duration,                                           -- the duration (estimate, in secs.)
+          period,                                             -- the name of the period (year, day, etc.)
+          sum,                                                -- the sum of event values
+          count,                                              -- the count of events
+          value                                               -- the aggregated value
+      );
+
+      CREATE INDEX IF NOT EXISTS aggregated_#{name}_idx1 ON aggregated_#{name}(name);
+      CREATE INDEX IF NOT EXISTS aggregated_#{name}_idx2 ON aggregated_#{name}(starts_at);
+      CREATE INDEX IF NOT EXISTS aggregated_#{name}_idx2 ON aggregated_#{name}(period);
+      CREATE INDEX IF NOT EXISTS aggregated_#{name}_idx2 ON aggregated_#{name}(duration);
+      SQL
+    end
+
+    exec <<-SQL
+    PRAGMA synchronous = NORMAL;
+
+    CREATE VIEW IF NOT EXISTS aggregates AS
+      SELECT * FROM aggregated_gauges
+        UNION
+      SELECT * FROM aggregated_counters
+    SQL
   end
 
-  # def gauge(name, value, starts_at = nil)
-  #   add_event :gauges, name, value, starts_at
-  # end
+  def gauge(name, value, starts_at = nil)
+    add_event :gauges, name, value, starts_at
+  end
 
   def count(name, value, starts_at = nil)
     add_event :counters, name, value, starts_at
@@ -247,38 +245,49 @@ class Events::DB
   }
 
   def aggregate(*keys)
+    if keys.empty?
+      keys = PERIOD_START_SQL_FRAGMENT.keys
+    end
+
     transaction do
-      if keys.empty?
-        keys = PERIOD_START_SQL_FRAGMENT.keys
+      keys.each do |key|
+        aggregate_for_period key, :counters
       end
 
-      aggregate_counters(keys)
+      @db.exec "DELETE FROM counters"
+    end
+
+    transaction do
+      keys.each do |key|
+        aggregate_for_period key, :gauges
+      end
+
+      @db.exec "DELETE FROM gauges"
     end
   end
 
-  def aggregate_counters(keys)
-    keys.each do |key|
-      benchmark "aggregate #{key.inspect} values" do
-        aggregate_for_period key
-      end
-    end
+  def aggregate_for_period(key, events_table)
+    key = key.to_sym
 
-    @db.exec "DELETE FROM counters"
-  end
+    expect! key => PERIOD_START_SQL_FRAGMENT.keys
+    expect! events_table => [ :counters, :gauges ]
 
-  def aggregate_for_period(key)
-    duration, starts_at = PERIOD_START_SQL_FRAGMENT.fetch(key.to_sym)
+    aggregated_table = "aggregated_#{events_table}"
+
+    duration, starts_at = PERIOD_START_SQL_FRAGMENT[key]
+
+    # sql expression to calculate value from sum and count of event values
+    aggregate = events_table == :gauges ? "CAST(sum AS FLOAT) / count" : "sum"
 
     @db.exec <<-SQL
-      -- preaggregate counters from aggregates into batch_for_#{key}
-      CREATE TEMPORARY TABLE batch_for_#{key} AS
+      CREATE TEMPORARY TABLE batch AS
         SELECT name, starts_at, SUM(sum) AS sum, SUM(count) AS count FROM
         (
           SELECT name     AS name,
             #{starts_at}  AS starts_at,
             SUM(value)    AS sum,
             COUNT(value)  AS count
-            FROM counters
+            FROM #{events_table}
           GROUP BY name, starts_at
 
           UNION
@@ -287,20 +296,21 @@ class Events::DB
             starts_at     AS starts_at,
             sum           AS sum,
             count         AS count
-          FROM aggregates
+          FROM #{aggregated_table}
           WHERE duration=#{duration}
         )
         GROUP BY name, starts_at;
-        SQL
 
-    @db.exec <<-SQL
-      --
-      DELETE FROM aggregates
+      DELETE FROM #{aggregated_table}
       WHERE duration=#{duration};
 
-      INSERT INTO aggregates(name, starts_at, period, duration, sum, count, value)
-                      SELECT name, starts_at, '#{key}', #{duration}, sum, count, sum
-                      FROM batch_for_#{key};
+      INSERT INTO #{aggregated_table}(name, starts_at, period, duration, sum, count, value)
+                      SELECT name, starts_at, '#{key}', #{duration}, sum, count, #{aggregate}
+                      FROM batch;
+    SQL
+
+    @db.exec <<-SQL
+      DROP TABLE batch;
     SQL
   end
 end
@@ -428,7 +438,6 @@ class Events::TestCases::Counters < Test::Unit::TestCase
     r = db.select <<-SQL
       SELECT name, value, period, starts_at
       FROM aggregates
-      WHERE duration <= 3600
       ORDER BY duration, name
     SQL
 
@@ -439,6 +448,100 @@ class Events::TestCases::Counters < Test::Unit::TestCase
       ["foo.bar", 2, "minute",  Time.parse("2014-03-02 11:10:00 +0100")],
       ["foo"    , 5, "hour",    Time.parse("2014-03-02 11:00:00 +0100")],
       ["foo.bar", 2, "hour",    Time.parse("2014-03-02 11:00:00 +0100")]
+    ])
+  end
+
+  def test_double_aggregate
+    db.count "foo",     3, "2014-03-02 12:10:11"
+    db.count "foo.bar", 2, "2014-03-02 12:10:11"
+    db.aggregate :second, :minute, :hour
+    db.aggregate :second, :minute, :hour
+
+    r = db.select <<-SQL
+      SELECT name, value, period, starts_at
+      FROM aggregates
+      ORDER BY duration, name
+    SQL
+
+    assert_equal(r.map(&:to_a), [
+      ["foo"    , 5, "second",  Time.parse("2014-03-02 11:10:11 +0100")],
+      ["foo.bar", 2, "second",  Time.parse("2014-03-02 11:10:11 +0100")],
+      ["foo"    , 5, "minute",  Time.parse("2014-03-02 11:10:00 +0100")],
+      ["foo.bar", 2, "minute",  Time.parse("2014-03-02 11:10:00 +0100")],
+      ["foo"    , 5, "hour",    Time.parse("2014-03-02 11:00:00 +0100")],
+      ["foo.bar", 2, "hour",    Time.parse("2014-03-02 11:00:00 +0100")]
+    ])
+  end
+end
+
+class Events::TestCases::Gauging < Test::Unit::TestCase
+  def db
+    @db ||= Events::DB.new ":memory:"
+  end
+
+  def test_two_events
+    db.gauge "foo", 1, "2014-03-02 12:10:11"
+    db.gauge "foo", 2, "2014-03-02 14:10:11"
+    db.aggregate :minute, :hour, :day
+
+    r = db.select("SELECT name, value, period, starts_at FROM aggregates ORDER BY duration, name, starts_at")
+    r = r.map(&:to_a)
+
+    assert_equal(r, [
+      ["foo", 1, "minute",  Time.parse("2014-03-02 11:10:00 +0100")],
+      ["foo", 2, "minute",  Time.parse("2014-03-02 13:10:00 +0100")],
+      ["foo", 1, "hour",    Time.parse("2014-03-02 11:00:00 +0100")],
+      ["foo", 2, "hour",    Time.parse("2014-03-02 13:00:00 +0100")],
+      ["foo", 1.5, "day",   Time.parse("2014-03-02 00:00:00 +0100")],
+    ])
+  end
+end
+
+class Events::TestCases::Mixed < Test::Unit::TestCase
+  def db
+    @db ||= Events::DB.new ":memory:"
+  end
+
+  def xtest_two_events
+    db.gauge "foo", 1, "2014-03-02 12:10:11"
+    db.gauge "foo", 2, "2014-03-02 14:10:11"
+    db.count "bar", 1, "2014-03-02 12:10:11"
+    db.count "bar", 2, "2014-03-02 14:10:11"
+    db.aggregate :minute, :hour, :day
+
+    r = db.select("SELECT name, value, period, starts_at FROM aggregates ORDER BY name, duration, starts_at")
+    r = r.map(&:to_a)
+
+    assert_equal(r, [
+      ["bar", 1,    "minute",  Time.parse("2014-03-02 11:10:00 +0100")],
+      ["bar", 2,    "minute",  Time.parse("2014-03-02 13:10:00 +0100")],
+      ["bar", 1,    "hour",    Time.parse("2014-03-02 11:00:00 +0100")],
+      ["bar", 2,    "hour",    Time.parse("2014-03-02 13:00:00 +0100")],
+      ["bar", 3,    "day",     Time.parse("2014-03-02 00:00:00 +0100")],
+      ["foo", 1,    "minute",  Time.parse("2014-03-02 11:10:00 +0100")],
+      ["foo", 2,    "minute",  Time.parse("2014-03-02 13:10:00 +0100")],
+      ["foo", 1,    "hour",    Time.parse("2014-03-02 11:00:00 +0100")],
+      ["foo", 2,    "hour",    Time.parse("2014-03-02 13:00:00 +0100")],
+      ["foo", 1.5,  "day",     Time.parse("2014-03-02 00:00:00 +0100")],
+    ])
+  end
+
+  def test_two_events_x
+    db.count "bar", 1, "2014-03-02 12:10:11"
+    db.count "bar", 2, "2014-03-02 14:10:11"
+    db.gauge "foo", 1, "2014-03-02 12:10:11"
+
+    db.aggregate :minute, :hour, :day
+
+    r = db.select("SELECT name, value, period, starts_at FROM aggregates WHERE name='bar' ORDER BY name, duration, starts_at")
+    r = r.map(&:to_a)
+
+    assert_equal(r, [
+      ["bar", 1,    "minute",  Time.parse("2014-03-02 11:10:00 +0100")],
+      ["bar", 2,    "minute",  Time.parse("2014-03-02 13:10:00 +0100")],
+      ["bar", 1,    "hour",    Time.parse("2014-03-02 11:00:00 +0100")],
+      ["bar", 2,    "hour",    Time.parse("2014-03-02 13:00:00 +0100")],
+      ["bar", 3,    "day",     Time.parse("2014-03-02 00:00:00 +0100")],
     ])
   end
 end
