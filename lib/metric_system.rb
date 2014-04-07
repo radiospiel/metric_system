@@ -8,6 +8,7 @@ require "forwardable"
 class MetricSystem
   extend Forwardable
   delegate [:exec, :select, :transaction, :rollback] => :@db
+  delegate [:print, :run, :ask] => :@db
 
   PERIODS = [
     [ :year,   31536000, "strftime('%Y-01-01',          starts_at, 'unixepoch')" ],
@@ -86,11 +87,11 @@ class MetricSystem
       starts_at = Time.parse(starts_at) if starts_at.is_a?(String)
 
       names.each do |name|
-        @db.run "INSERT INTO #{table}(name, value, starts_at) VALUES(?, ?, ?)", name, value, starts_at.to_i
+        run "INSERT INTO #{table}(name, value, starts_at) VALUES(?, ?, ?)", name, value, starts_at.to_i
       end
     else
       names.each do |name|
-        @db.run "INSERT INTO #{table}(name, value) VALUES(?, ?)", name, value
+        run "INSERT INTO #{table}(name, value) VALUES(?, ?)", name, value
       end
     end
   end

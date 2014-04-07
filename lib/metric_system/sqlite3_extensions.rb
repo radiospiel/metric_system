@@ -1,4 +1,5 @@
 require "sqlite3"
+require "pp"
 
 # manage SQLite3::Records
 #
