@@ -90,9 +90,9 @@ module MetricSystem::Database
         run "INSERT INTO #{table}(name, value) VALUES(?, ?)", name, value
       end
     end
+  rescue
+    STDERR.puts "#{$!}: #{table} #{name.inspect}, #{value.inspect}"
   end
-
-  public
 
   PERIODS_BY_KEY = PERIODS.by(&:first)
 
