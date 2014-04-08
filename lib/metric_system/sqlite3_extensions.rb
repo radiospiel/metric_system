@@ -44,6 +44,14 @@ module SQLite3::Record
     self.class.columns.map do |column| send(column) end
   end
 
+  def to_hash
+    kvs = self.class.columns.inject([]) do |ary, column|
+      ary << column << send(column)
+    end
+
+    Hash[*kvs]
+  end
+
   def self.for_columns(columns)
     columns = columns.map(&:to_sym)
 
@@ -74,9 +82,13 @@ class SQLite3::Query
   def select(*args)
     @klass ||= SQLite3::Record.for_columns(@statement.columns)
 
-    run(*args).map do |rec|
+    ary = run(*args).map do |rec|
       @klass.build *rec
     end
+
+    columns = @statement.columns
+    ary.singleton_class.send(:define_method, :columns) { columns }
+    ary
   end
 
   def ask(*args)
