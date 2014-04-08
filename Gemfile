@@ -7,6 +7,8 @@ source "http://rubygems.org"
 
 gemspec
 
+gem "sinatra"
+
 group :development do
   gem 'rdoc'
   gem 'rake'

@@ -1,0 +1,171 @@
+<html>
+  <head>
+    <!--Load the AJAX API-->
+    <script type="text/javascript" src="https://www.google.com/jsapi"></script>
+    <script type="text/javascript" src="//ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script>
+    <script type="text/javascript">
+    
+    // Load the Visualization API and the piechart package.
+    google.load('visualization', '1', {'packages':['corechart', 'table', 'annotationchart']});
+    
+    $.fn.visualize = function() {
+      var CHARTS = {
+        pie: google.visualization.PieChart,
+        area: google.visualization.AreaChart,
+        bar: google.visualization.BarChart,
+        column: google.visualization.ColumnChart,
+        annotation: google.visualization.AnnotationChart
+      }
+
+      this.each(function(idx, node) {
+        node = $(node);
+        
+        var ctor = CHARTS[$(node).data("chart")];
+        if(!ctor) ctor = google.visualization.Table;
+      
+        var chart = new ctor(node[0]);          // the chart object
+        var data = null;                        // the chart's data, will be loaded from url
+
+        var url = $(node).data("src");
+        if(url) {
+          loadDataFromURL();
+        }
+        else {
+          var raw_data = eval("r = " + node.text());
+          node.html("");
+          data = new google.visualization.DataTable(raw_data);
+          redraw();
+          
+        }
+
+        // automatically redraw when resizing.
+        (function() {
+          var timeout = null;
+  
+          $(window).resize(function() {
+            if(timeout) clearTimeout(timeout);
+            timeout = setTimeout(redraw, 50);
+          });
+        })();
+
+        // redraw();
+    
+        // -- callbacks and helpers ---------------------------------------------
+    
+        // (re)draw chart
+        function redraw() {
+          chart.draw(data, {width: node.width(), height: node.height()});
+        }
+  
+        // fetch data from \a url, never run two requests in parallel.
+        var xhrRequest = null;
+        function loadDataFromURL(callback) {
+          if(xhrRequest) return;
+      
+          xhrRequest = $.ajax({url: url, dataType: "text",
+            success: function(js) { 
+              xhrRequest = null;
+              var raw_data = eval("r = " + js);
+              data = new google.visualization.DataTable(raw_data);
+              redraw();
+            }
+          });
+        }        
+      });
+    };
+    
+    $(function() {
+      $('.google-visualization').visualize();
+    });
+    </script>
+  </head>
+
+  <body>
+    <style type="text/css" media="screen">
+    @import url(http://fonts.googleapis.com/css?family=Open+Sans:400,700);
+    
+    h1, h2, h3, h4 {
+      font-weight: 700;
+      font-family: 'Open Sans', sans-serif;
+    }
+
+    body {
+      padding: 0;
+      margin: 0;
+    }
+    
+    .google-visualization {
+      overflow: auto;
+      height: 300px;
+      width: 400px;
+      border: 1px solid red;
+    }
+    #gallery > div {
+      width: 400px;
+      display: inline-block;
+      position: relative;
+    }
+    #gallery > div > h3 {
+      position: relative;
+      top: 0;
+    }
+    
+    </style>
+
+    <div id="gallery">
+      <div>
+        <h3>Table</h3>
+        <div class="google-visualization">
+          <%=
+            select "SELECT date(starts_at), value FROM aggregates WHERE period='day'"
+          %>
+        </div>
+      </div>
+      <div>
+        <h3>Pie Chart</h3>
+        <div class="google-visualization" data-src="/data.js" data-chart="pie">
+        </div>
+      </div>
+      <div>
+        <h3>Area Chart</h3>
+        <div class="google-visualization" data-chart="area">
+          <%=
+            select "SELECT date(starts_at), value FROM aggregates WHERE period='day'"
+          %>
+        </div>
+      </div>
+      <div>
+        <h3>Area Chart</h3>
+        <div class="google-visualization" data-chart="area">
+          <%=
+            select "SELECT date(starts_at), value FROM aggregates WHERE period='day'"
+          %>
+        </div>
+      </div>
+      <div>
+        <h3>Bar Chart</h3>
+        <div class="google-visualization" data-chart="bar">
+          <%=
+            select "SELECT date(starts_at), value FROM aggregates WHERE period='day'"
+          %>
+        </div>
+      </div>
+      <div>
+        <h3>Column Chart</h3>
+        <div class="google-visualization" data-chart="column">
+          <%=
+            select "SELECT date(starts_at), value FROM aggregates WHERE period='day'"
+          %>
+        </div>
+      </div>
+      <div>
+        <h3>Annotation Chart</h3>
+        <div class="google-visualization" data-chart="annotation">
+          <%=
+            select "SELECT date(starts_at) AS starts_on, value FROM aggregates WHERE period='day'"
+          %>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

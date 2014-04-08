@@ -1,7 +1,11 @@
 # metric_system
 
 A simple metric collector
- 
+
+**Note!** 
+
+This is alpha software. Use at your own risk!
+
 ## Installation
 
     gem install metric_system
