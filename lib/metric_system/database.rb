@@ -58,6 +58,7 @@ module MetricSystem::Database
 
     exec <<-SQL
     PRAGMA synchronous = NORMAL;
+    PRAGMA journal_mode = WAL;
 
     CREATE VIEW IF NOT EXISTS aggregates AS
       SELECT * FROM aggregated_gauges
