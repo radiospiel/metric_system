@@ -3,13 +3,9 @@ module MetricSystem::Database
     require_relative "./sqlite3_extensions"
   end
 
-  def exec(*args, &block);        @db.exec(*args, &block);          end
-  def select(*args, &block);      @db.select(*args, &block);        end
-  def transaction(*args, &block); @db.transaction(*args, &block);   end
-  def rollback(*args, &block);    @db.rollback(*args, &block);      end
-  def print(*args, &block);       @db.print(*args, &block);         end
-  def run(*args, &block);         @db.run(*args, &block);           end
-  def ask(*args, &block);         @db.ask(*args, &block);           end
+  extend Forwardable
+
+  delegate [:exec, :select, :transaction, :rollback, :print, :run, :ask, :register] => :"@db"
 
   PERIODS = [
     [ :year,   31536000, "strftime('%Y-01-01',          starts_at, 'unixepoch')" ],

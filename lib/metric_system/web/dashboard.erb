@@ -123,7 +123,7 @@
       </div>
       <div>
         <h3>Pie Chart</h3>
-        <div class="google-visualization" data-src="/data.js" data-chart="pie">
+        <div class="google-visualization" data-src="/value_by_day_name.js" data-chart="pie">
         </div>
       </div>
       <div>
@@ -137,33 +137,25 @@
       <div>
         <h3>Area Chart</h3>
         <div class="google-visualization" data-chart="area">
-          <%=
-            select "SELECT date(starts_at), value FROM aggregates WHERE period='day'"
-          %>
+          <%= select :value_by_day %>
         </div>
       </div>
       <div>
         <h3>Bar Chart</h3>
         <div class="google-visualization" data-chart="bar">
-          <%=
-            select "SELECT date(starts_at), value FROM aggregates WHERE period='day'"
-          %>
+          <%= select :value_by_day %>
         </div>
       </div>
       <div>
         <h3>Column Chart</h3>
         <div class="google-visualization" data-chart="column">
-          <%=
-            select "SELECT date(starts_at), value FROM aggregates WHERE period='day'"
-          %>
+          <%= select :value_by_day %>
         </div>
       </div>
       <div>
         <h3>Annotation Chart</h3>
         <div class="google-visualization" data-chart="annotation">
-          <%=
-            select "SELECT date(starts_at) AS starts_on, value FROM aggregates WHERE period='day'"
-          %>
+          <%= select :value_by_day %>
         </div>
       </div>
     </div>
