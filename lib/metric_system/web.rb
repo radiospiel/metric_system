@@ -18,16 +18,10 @@ class MetricSystem::Web < Sinatra::Base
   set :views, "#{File.dirname(__FILE__)}/web"
   set :dump_errors, true
 
-  set :database, nil
-
   helpers do
-    def database
-      MetricSystem::Web.database
-    end
-
     def select(query, *args)
       @result_cache ||= {}
-      @result_cache[query] ||= database.select(query, *args).data_table.to_js
+      @result_cache[query] ||= MetricSystem.database.select(query, *args).data_table.to_js
     end
   end
 

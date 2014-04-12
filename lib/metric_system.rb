@@ -5,15 +5,16 @@ require_relative "metric_system/core_extensions"
 module MetricSystem
   extend self
 
-  attr :target
+  attr :target, :database
 
   def target=(target)
+    @target = @database = nil
+
     case target
     when nil
-      @target = nil
     when String
       require_relative "metric_system/database"
-      @target = MetricSystem::Database.new(target)
+      @target = @database = MetricSystem::Database.new(target)
     else
       require_relative "metric_system/io"
       @target = MetricSystem::IO.new(target)
