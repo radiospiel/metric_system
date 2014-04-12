@@ -8,6 +8,7 @@ source "http://rubygems.org"
 gemspec
 
 gem "sinatra"
+gem "thin"
 
 group :development do
   gem 'rdoc'
