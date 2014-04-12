@@ -3,8 +3,16 @@ require "metric_system"
 require "test/unit"
 
 class MetricSystem::TestGauging < Test::Unit::TestCase
+  def setup
+    MetricSystem.target = ":memory:"
+  end
+  
+  def teardown
+    MetricSystem.target = nil
+  end
+  
   def db
-    @db ||= MetricSystem.new ":memory:"
+    MetricSystem
   end
 
   def test_two_events

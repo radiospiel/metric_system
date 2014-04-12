@@ -2,9 +2,15 @@ require "expectation"
 
 require_relative "metric_system/core_extensions"
 
-class MetricSystem
-  def initialize(target)
+module MetricSystem
+  extend self
+
+  attr :target
+
+  def target=(target)
     case target
+    when nil
+
     when String
       require_relative "metric_system/database"
       extend MetricSystem::Database
@@ -13,7 +19,7 @@ class MetricSystem
       extend MetricSystem::IO
     end
 
-    open target
+    open(target)
   end
 
   def gauge(name, value, starts_at = nil)

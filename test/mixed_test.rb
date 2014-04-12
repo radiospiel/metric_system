@@ -3,11 +3,19 @@ require "metric_system"
 require "test/unit"
 
 class MetricSystem::TestMixed < Test::Unit::TestCase
+  def setup
+    MetricSystem.target = ":memory:"
+  end
+  
+  def teardown
+    MetricSystem.target = nil
+  end
+  
   def db
-    @db ||= MetricSystem.new ":memory:"
+    MetricSystem
   end
 
-  def xtest_two_events
+  def test_two_events
     db.gauge "foo", 1, "2014-03-02 12:10:11"
     db.gauge "foo", 2, "2014-03-02 14:10:11"
     db.count "bar", 1, "2014-03-02 12:10:11"
