@@ -10,24 +10,25 @@ module MetricSystem
   def target=(target)
     case target
     when nil
-
+      @target = nil
     when String
       require_relative "metric_system/database"
-      extend MetricSystem::Database
+      @target = MetricSystem::Database.new(target)
     else
       require_relative "metric_system/io"
-      extend MetricSystem::IO
+      @target = MetricSystem::IO.new(target)
     end
-
-    open(target)
   end
 
+  extend Forwardable
+  delegate [:aggregate, :select, :print, :run, :ask, :register] => :"@target"
+
   def gauge(name, value, starts_at = nil)
-    add_event :gauges, name, value, starts_at
+    @target.add_event :gauges, name, value, starts_at
   end
 
   def count(name, value, starts_at = nil)
-    add_event :counters, name, value, starts_at
+    @target.add_event :counters, name, value, starts_at
   end
 
   def measure(name, starts_at = nil, &block)

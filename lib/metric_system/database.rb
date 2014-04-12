@@ -1,6 +1,7 @@
-module MetricSystem::Database
-  def self.extended(other)
+class MetricSystem::Database
+  def initialize(path)
     require_relative "./sqlite3_extensions"
+    open path
   end
 
   extend Forwardable

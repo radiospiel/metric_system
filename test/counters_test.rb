@@ -33,6 +33,8 @@ class MetricSystem::TestCounters < Test::Unit::TestCase
   end
 
   def test_conversion
+    db = MetricSystem.target
+    expect! db => MetricSystem::Database
     db.exec "CREATE TABLE tmp(value, starts_at, starts_on)"
     now = Time.parse("2014-03-02 11:10:11 +0100")
     day = Date.parse("2014-03-02")
