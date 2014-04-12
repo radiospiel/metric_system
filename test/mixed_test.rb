@@ -6,11 +6,11 @@ class MetricSystem::TestMixed < Test::Unit::TestCase
   def setup
     MetricSystem.target = ":memory:"
   end
-  
+
   def teardown
     MetricSystem.target = nil
   end
-  
+
   def db
     MetricSystem
   end

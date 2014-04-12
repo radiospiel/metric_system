@@ -147,7 +147,7 @@ class MetricSystem::Database
             count                 AS count
           FROM #{dest}
           -- INNER JOIN #{source} ON #{dest}.name=#{source}.name
-          WHERE duration=#{duration} 
+          WHERE duration=#{duration}
             AND #{dest}.starts_at >= (SELECT MIN(starts_at) FROM #{source})
         )
         GROUP BY name, starts_at;

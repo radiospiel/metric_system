@@ -38,7 +38,7 @@ class SQLite3::Query
 
         { id: column, type: type, label: column }
       end
-  
+
       rows = map { |record| convert_record record, cols }
 
       { cols: cols, rows: rows }
@@ -48,22 +48,22 @@ class SQLite3::Query
       values = cols.map do |col|
         id, type = col.values_at(:id, :type)
         v = record.send(id)
-      
+
         case type
         when :date      then f = v.strftime("%a %b, %Y")
         when :datetime  then f = v.inspect
         when :number    then f = v
         else            f = v
         end
-        
+
 
         { v: v, f: f }
       end
-    
+
       { c: values }
     end
   end
-  
+
   def ask(*args)
     results = run(*args)
     row = results.first

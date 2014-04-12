@@ -6,11 +6,11 @@ class MetricSystem::TestGauging < Test::Unit::TestCase
   def setup
     MetricSystem.target = ":memory:"
   end
-  
+
   def teardown
     MetricSystem.target = nil
   end
-  
+
   def db
     MetricSystem
   end

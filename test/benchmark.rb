@@ -22,7 +22,7 @@ MetricSystem.target = DBPATH
 
 benchmark "Building metric_system" do
   distance = 24 * 3600.0 / TICKS_PER_DAY
-  
+
   0.upto(365) do |day|
     midnight = Time.parse("2013-01-01").to_i + day * 24 * 3600
 

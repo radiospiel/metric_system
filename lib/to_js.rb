@@ -4,7 +4,7 @@ class Object
   def to_js
     convert_to_js
   end
-  
+
   alias :convert_to_js :to_json
 end
 

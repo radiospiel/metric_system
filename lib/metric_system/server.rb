@@ -4,28 +4,28 @@ require 'eventmachine'
 module MetricSystem::Server
   include EM::P::LineProtocol
   extend self
-  
+
   module Buffer
     extend self
 
     def buffer
       @buffer ||= []
     end
-    
+
     def take
       taken, @buffer = @buffer, []
       taken
     end
-    
+
     def push(event)
       buffer << event
     end
-    
+
     def length
       buffer.length
     end
   end
-  
+
   class Event < Struct.new(:table, :name, :value, :time)
     def self.parse(line)
       table, name, value, time, remainder = line.split(" ", 5)
@@ -95,7 +95,7 @@ module MetricSystem::Server
     MetricSystem.aggregate
     STDERR.puts "    Merging #{events.count} events: %.3f secs" % (Time.now - starts_at)
   end
-    
+
   # Note that this will block current thread.
   def self.run(db, socket_path)
     MetricSystem.target = db
