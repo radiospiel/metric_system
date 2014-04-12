@@ -63,44 +63,49 @@ module MetricSystem::Server
     events = Buffer.take
 
     operation = proc {
-      starts_at = Time.now
-      MetricSystem.transaction do
-        events.each do |event|
-          MetricSystem.add_event event.table, event.name, event.value, event.time
-        end
-      end
-      STDERR.puts "    Writing #{events.count} events: %.3f secs" % (Time.now - starts_at)
-
-      starts_at = Time.now
-      MetricSystem.aggregate
-      STDERR.puts "    Merging #{events.count} events: %.3f secs" % (Time.now - starts_at)
+      flush_events events
     }
-    callback = proc { |db| 
+    callback = proc {
       @busy = nil
     }
-  
-    EventMachine.defer operation, callback    
+    EventMachine.defer operation, callback
   rescue
     STDERR.puts "#{$!}, from\n\t" + $!.backtrace.join("\t")
   end
-  
+
+  def self.flush_events(events)
+    return if events.empty?
+
+    starts_at = Time.now
+    MetricSystem.transaction do
+      events.each do |event|
+        MetricSystem.add_event event.table, event.name, event.value, event.time
+      end
+    end
+    STDERR.puts "    Writing #{events.count} events: %.3f secs" % (Time.now - starts_at)
+
+    starts_at = Time.now
+    MetricSystem.aggregate
+    STDERR.puts "    Merging #{events.count} events: %.3f secs" % (Time.now - starts_at)
+  end
+    
   # Note that this will block current thread.
   def self.run(db, socket_path)
     MetricSystem.target = db
 
     STDERR.puts "Starting server at socket: #{socket_path}"
-    
+
     EventMachine.run {
       EventMachine::PeriodicTimer.new(1) do
         MetricSystem::Server.flush
       end
 
       EventMachine.start_server socket_path, MetricSystem::Server
+    EventMachine.stop_event_loop
     }
   end
 
   def self.quit
     MetricSystem::Server.flush
-    EventMachine.stop_event_loop
   end
 end
