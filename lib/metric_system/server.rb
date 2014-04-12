@@ -97,7 +97,8 @@ module MetricSystem::Server
   end
 
   # Note that this will block current thread.
-  def self.run(db, socket_path)
+  def self.run(db, socket_path, options = {})
+    @options = options || {}
     MetricSystem.target = db
 
     STDERR.puts "Starting server at socket: #{socket_path}"
@@ -117,6 +118,7 @@ module MetricSystem::Server
 
   def self.shutdown
     return if shutting_down?
+    return unless @options[:quit_server]
 
     @shutting_down = true
     MetricSystem::Server.flush

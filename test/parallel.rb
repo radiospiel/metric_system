@@ -13,7 +13,7 @@ if mode == nil then
     system "ruby #{__FILE__} sender"
   end
 
-  MetricSystem::Server.run DBPATH, SOCKET
+  MetricSystem::Server.run DBPATH, SOCKET, :quit_server => true
 
   puts "server stopped"
 
