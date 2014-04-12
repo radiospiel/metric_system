@@ -10,6 +10,6 @@ class MetricSystem::IO
   end
 
   def quit_server!
-    @io.puts "QUIT:SERVER"
+    @io.puts "SHUTDOWN:SERVER"
   end
 end

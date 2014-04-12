@@ -36,10 +36,12 @@ module MetricSystem::Server
   end
 
   def receive_line(line)
-    if line == "QUIT:SERVER"
-      MetricSystem::Server.quit
+    if line == "SHUTDOWN:SERVER"
+      MetricSystem::Server.shutdown
       return
     end
+
+    return if MetricSystem::Server.shutting_down?
 
     return unless event = Event.parse(line)
 
@@ -67,6 +69,11 @@ module MetricSystem::Server
     }
     callback = proc {
       @busy = nil
+
+      if shutting_down?
+        flush_events(Buffer.take)
+        EM.stop
+      end
     }
     EventMachine.defer operation, callback
   rescue
@@ -101,11 +108,17 @@ module MetricSystem::Server
       end
 
       EventMachine.start_server socket_path, MetricSystem::Server
-    EventMachine.stop_event_loop
     }
   end
 
-  def self.quit
+  def self.shutting_down?
+    @shutting_down
+  end
+
+  def self.shutdown
+    return if shutting_down?
+
+    @shutting_down = true
     MetricSystem::Server.flush
   end
 end
