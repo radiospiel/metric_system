@@ -1,6 +1,7 @@
 require "expectation"
 
 require_relative "metric_system/core_extensions"
+require "forwardable"
 
 module MetricSystem
   extend self
@@ -23,13 +24,16 @@ module MetricSystem
 
   extend Forwardable
   delegate [:aggregate, :select, :print, :run, :ask, :register] => :"@target"
+  delegate [:transaction] => :"@target"
+  delegate [:add_event] => :"@target"
+  delegate [:quit_server!] => :"@target"
 
   def gauge(name, value, starts_at = nil)
-    @target.add_event :gauges, name, value, starts_at
+    add_event :gauges, name, value, starts_at
   end
 
   def count(name, value, starts_at = nil)
-    @target.add_event :counters, name, value, starts_at
+    add_event :counters, name, value, starts_at
   end
 
   def measure(name, starts_at = nil, &block)

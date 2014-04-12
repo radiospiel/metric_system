@@ -36,53 +36,47 @@ module MetricSystem::Server
   end
 
   def receive_line(line)
+    if line == "QUIT:SERVER"
+      MetricSystem::Server.quit
+      return
+    end
+
     return unless event = Event.parse(line)
 
     Buffer.push event
 
-    return unless Buffer.length % 1000 == 0
-
-    MetricSystem::Server.flush
+    MetricSystem::Server.flush if Buffer.length % 1000 == 0
   rescue
     STDERR.puts "#{$!}, from\n\t" + $!.backtrace.join("\t")
-  end
-
-  def self.db
-    @db
-  end
-  def self.db=(db)
-    @db = db
   end
 
   def self.flush
     return unless Buffer.length > 0
 
-    unless @db
+    if @busy
       STDERR.puts "    Waiting for writer: backlog is #{Buffer.length} entries"
       return
     end
-    
-    db, @db = @db, nil
+
+    @busy = true
 
     events = Buffer.take
 
     operation = proc {
       starts_at = Time.now
-      db.transaction do
+      MetricSystem.transaction do
         events.each do |event|
-          db.add_event event.table, event.name, event.value, event.time
+          MetricSystem.add_event event.table, event.name, event.value, event.time
         end
       end
+      STDERR.puts "    Writing #{events.count} events: %.3f secs" % (Time.now - starts_at)
 
       starts_at = Time.now
-      db.aggregate
-
-      STDERR.puts "        Merging #{events.count} events: %.3f secs" % (Time.now - starts_at)
-      
-      db
+      MetricSystem.aggregate
+      STDERR.puts "    Merging #{events.count} events: %.3f secs" % (Time.now - starts_at)
     }
     callback = proc { |db| 
-      @db = db
+      @busy = nil
     }
   
     EventMachine.defer operation, callback    
@@ -92,7 +86,7 @@ module MetricSystem::Server
   
   # Note that this will block current thread.
   def self.run(db, socket_path)
-    @db = MetricSystem.new db
+    MetricSystem.target = db
 
     STDERR.puts "Starting server at socket: #{socket_path}"
     
@@ -103,5 +97,10 @@ module MetricSystem::Server
 
       EventMachine.start_server socket_path, MetricSystem::Server
     }
+  end
+
+  def self.quit
+    MetricSystem::Server.flush
+    EventMachine.stop_event_loop
   end
 end
