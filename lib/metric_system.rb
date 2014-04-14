@@ -23,7 +23,7 @@ module MetricSystem
   end
 
   extend Forwardable
-  delegate [:aggregate, :select, :print, :run, :ask, :register] => :"@target"
+  delegate [:aggregate, :select, :print, :run, :ask] => :"@target"
   delegate [:transaction] => :"@target"
   delegate [:add_event] => :"@target"
   delegate [:quit_server!] => :"@target"

@@ -30,7 +30,7 @@ benchmark "Building metric_system" do
       MetricSystem.transaction do
         1.upto(TICKS_PER_DAY) do |step|
           time = midnight + distance * step
-          STDERR.print "."
+          # STDERR.print "."
           MetricSystem.count "clicks", 1, time
         end
       end
