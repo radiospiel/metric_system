@@ -1,11 +1,13 @@
 require 'sinatra/base'
 require 'to_js'
+require 'metric_system/database'
 
 class MetricSystem::Web < Sinatra::Base
   set :environment, :development
   set :raise_errors, true
   set :views, "#{File.dirname(__FILE__)}/web"
   set :dump_errors, true
+  set :database, nil
 
   def self.register_query(name, query)
     registry[name] = query
@@ -13,6 +15,11 @@ class MetricSystem::Web < Sinatra::Base
 
   def self.registry
     @registry ||= {}
+  end
+
+  # return a database for the current thread
+  def self.connection
+    Thread.current[:"MetricSystem::Web.database"] ||= MetricSystem::Database.new(self.database, :readonly)
   end
 
   def self.select(query, *args)
@@ -23,7 +30,7 @@ class MetricSystem::Web < Sinatra::Base
       query = registry.fetch(query)
     end
 
-    result = MetricSystem.select query, *args #period: "month"
+    result = connection.select query, *args #period: "month"
     result.data_table.to_js
   end
 
@@ -32,7 +39,6 @@ class MetricSystem::Web < Sinatra::Base
       @result_cache ||= {}
       @result_cache[[query, args]] ||= self.class.select(query, *args, params)
     end
-
   end
 
   get '/:query.js' do
