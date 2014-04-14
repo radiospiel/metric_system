@@ -30,7 +30,7 @@ module MetricSystem::Server
     def self.parse(line)
       table, name, value, time, remainder = line.split(" ", 5)
       value = value.to_f
-      time = time ? time.to_i : Time.now.to_i
+      time = time != "" ? time.to_i : nil
       new(table, name, value, time)
     end
   end
