@@ -1,7 +1,11 @@
 require "expectation"
+require "forwardable"
+
+module MetricSystem
+end
 
 require_relative "metric_system/core_extensions"
-require "forwardable"
+require_relative "metric_system/version"
 
 module MetricSystem
   extend self
