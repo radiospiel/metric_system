@@ -1,12 +1,15 @@
 class MetricSystem::Database
-  def initialize(path)
+  def initialize(path, readonly = false)
     require_relative "./sqlite3_extensions"
     open path
+
+    exec "PRAGMA query_only = 1" if readonly # This might or might not work.
+    @db.readonly = !!readonly
   end
 
   extend Forwardable
 
-  delegate [:exec, :select, :transaction, :rollback, :print, :run, :ask, :register] => :"@db"
+  delegate [:exec, :select, :transaction, :rollback, :print, :run, :ask, :register, :readonly?] => :"@db"
 
   PERIODS = [
     [ :year,   31536000, "strftime('%Y-01-01',          starts_at, 'unixepoch')" ],
@@ -103,7 +106,7 @@ class MetricSystem::Database
         aggregate_for_period :period => period, :source => :counters, :dest => :aggregated_counters, :aggregate => "sum"
       end
 
-      @db.exec "DELETE FROM counters"
+      exec "DELETE FROM counters"
     end
 
     transaction do
@@ -111,7 +114,7 @@ class MetricSystem::Database
         aggregate_for_period :period => period, :source => :gauges, :dest => :aggregated_gauges, :aggregate => "CAST(sum AS FLOAT) / count"
       end
 
-      @db.exec "DELETE FROM gauges"
+      exec "DELETE FROM gauges"
     end
   end
 
@@ -128,7 +131,7 @@ class MetricSystem::Database
     # sql expression to calculate value from sum and count of event values
     aggregate = source == :gauges ? "CAST(sum AS FLOAT) / count" : "sum"
 
-    @db.exec <<-SQL
+    exec <<-SQL
       CREATE TEMPORARY TABLE batch AS
         SELECT name, starts_at, SUM(sum) AS sum, SUM(count) AS count FROM
         (
@@ -157,7 +160,7 @@ class MetricSystem::Database
                       FROM batch;
     SQL
 
-    @db.exec <<-SQL
+    exec <<-SQL
       DROP TABLE batch;
     SQL
   end

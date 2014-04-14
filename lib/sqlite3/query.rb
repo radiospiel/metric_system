@@ -13,6 +13,10 @@ class SQLite3::Query
     @parameters = @sql.scan(/:([a-z]+)/).map(&:first).map(&:to_sym)
   end
 
+  def destructive?
+    @sql !~ /\A\S*SELECT/i
+  end
+
   def run(*args)
     if parameters.length > 0
       named_args = {}

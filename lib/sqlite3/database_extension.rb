@@ -1,6 +1,16 @@
 class SQLite3::Database
+  def readonly?
+    @readonly
+  end
+
+  def readonly=(readonly)
+    @readonly = readonly
+  end
+
   # execute multiple SQL statements at once.
   def exec(sql, *args)
+    raise "Cannot run nondestructive query: #{sql}" if readonly?
+
     args = prepare_arguments(args)
 
     while sql =~ /\S/ do
@@ -25,7 +35,11 @@ class SQLite3::Database
     expect! sql => String
 
     @queries ||= {}
-    @queries[sql] ||= SQLite3::Query.new sql, prepare(sql)
+    query = @queries[sql] ||= begin
+      query = SQLite3::Query.new sql, prepare(sql)
+      raise "Cannot run nondestructive query: #{sql}" if readonly? && query.destructive?
+      query
+    end
   end
 
   def prepare_arguments(args)
