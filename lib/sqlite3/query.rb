@@ -1,12 +1,39 @@
+class SQLite3::MissingParameters < RuntimeError
+end
+
 class SQLite3::Query
+
+  # all parameters in the query, as Symbols.
+  attr :parameters
+
   def initialize(sql, statement)
     expect! statement => SQLite3::Statement
 
     @sql, @statement = sql, statement
+    @parameters = @sql.scan(/:([a-z]+)/).map(&:first).map(&:to_sym)
   end
 
   def run(*args)
-    # STDERR.puts "Q: #{@sql} #{args.map(&:inspect).join(", ")}"
+    if parameters.length > 0
+      named_args = {}
+
+      if args.last.is_a?(Hash)
+        args.pop.each do |name, value|
+          named_args[name.to_sym] = value
+        end
+      end
+
+      missing = parameters - named_args.keys
+      unless missing.empty?
+        raise SQLite3::MissingParameters, "Missing parameter(s): #{missing.inspect}"
+      end
+
+      named_args = named_args.select do |name, value|
+        parameters.include?(name)
+      end
+      args << named_args
+    end
+
     @statement.execute *args
   end
 
@@ -43,6 +70,8 @@ class SQLite3::Query
 
       { cols: cols, rows: rows }
     end
+
+    private
 
     def convert_record(record, cols)
       values = cols.map do |col|

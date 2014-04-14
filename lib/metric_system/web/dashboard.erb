@@ -116,22 +116,18 @@
       <div>
         <h3>Table</h3>
         <div class="google-visualization">
-          <%=
-            select "SELECT date(starts_at), value FROM aggregates WHERE period='day'"
-          %>
+          <%= select "SELECT date(starts_at), value FROM aggregates WHERE period=:period" %>
         </div>
       </div>
       <div>
         <h3>Pie Chart</h3>
-        <div class="google-visualization" data-src="/value_by_day_name.js" data-chart="pie">
+        <div class="google-visualization" data-src="/value_by_day_name.js?period=month" data-chart="pie">
         </div>
       </div>
       <div>
         <h3>Area Chart</h3>
         <div class="google-visualization" data-chart="area">
-          <%=
-            select "SELECT date(starts_at), value FROM aggregates WHERE period='day'"
-          %>
+          <%= select "SELECT date(starts_at), value FROM aggregates WHERE period=:period" %>
         </div>
       </div>
       <div>

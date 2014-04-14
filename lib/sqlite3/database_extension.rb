@@ -22,12 +22,7 @@ class SQLite3::Database
   private
 
   def query(sql)
-    expect! sql => [ String, Symbol ]
-
-    if sql.is_a?(Symbol)
-      expect! sql => registry.keys
-      sql = registry.fetch(sql)
-    end
+    expect! sql => String
 
     @queries ||= {}
     @queries[sql] ||= SQLite3::Query.new sql, prepare(sql)
@@ -71,15 +66,5 @@ class SQLite3::Database
       pp result.to_a
     end
     puts "=" * log_sql.length
-  end
-
-  # -- query registry
-
-  def registry
-    @registry ||= {}
-  end
-
-  def register(name, query)
-    registry[name] = query
   end
 end

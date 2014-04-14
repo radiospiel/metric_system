@@ -4,10 +4,15 @@ require "metric_system"
 require "metric_system/web"
 
 MetricSystem.target = "samples.sqlite"
-MetricSystem.target.register :value_by_day,
-  "SELECT date(starts_at) AS starts_on, value FROM aggregates WHERE period='day'"
 
-MetricSystem.target.register :value_by_day_name,  
-  "SELECT date(starts_at),              value FROM aggregates WHERE period='day'"
+class Stats < MetricSystem::Web
+  register_query :value_by_day,
+    "SELECT date(starts_at) AS starts_on, value FROM aggregates WHERE period=:period"
 
-run MetricSystem::Web
+  register_query :value_by_day_name,  
+    "SELECT date(starts_at), value FROM aggregates WHERE period=:period"
+end
+
+run Stats #, 1,2,3
+
+#run MetricSystem::Web.new
